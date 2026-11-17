@@ -8,7 +8,7 @@ import { audio } from './audio.js';
 import { SUI } from './sui.js';
 
 const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');           // 'start' | 'play' | 'over' | null
+const shot = params.get('shot');           // 'start' | 'play' | 'playb' | 'playc' | 'jumpa' | 'jumpb' | 'jumpc' | 'over' | null
 const seed = Number.parseInt(params.get('seed') ?? '17', 10) || 17;
 
 function mulberry32(initial) {
@@ -82,6 +82,7 @@ try { state.best = Number(localStorage.getItem('lofi-snow-rush-best') || 0) || 0
 const entities = [];         // { mesh, kind, lane, z, y, hit, passed }
 let nextSpawnDist = 30;
 let shotReady = false;
+let jumpStaged = false;     // scripted jump fired once (for ?shot=jump* captures)
 
 function score() { return Math.floor(state.dist) + state.coinScore; }
 
@@ -520,6 +521,23 @@ function checkShotReady() {
     shotReady = true; window.__shotReady = true;
   } else if (shot === 'over' && state.screen === 'over' && state.time > 0.8) {
     shotReady = true; window.__shotReady = true;
+  } else if ((shot === 'jumpa' || shot === 'jumpb' || shot === 'jumpc') && state.screen === 'playing') {
+    // scripted jump, fired once at dist 30 — before any entity spawned
+    // at z=-130 can reach the player (~9 s away), so the staging jump
+    // is never interrupted by a hit.
+    if (!jumpStaged && state.dist >= 30) { jump(); jumpStaged = true; }
+    if (jumpStaged) {
+      if (shot === 'jumpa' && state.y > 0.05 && state.vy > 0 && state.y < 0.7) {
+        // takeoff: just left the ground, still rising
+        shotReady = true; window.__shotReady = true;
+      } else if (shot === 'jumpb' && state.y > 1.5) {
+        // mid-air: near the apex (max ~1.77 m)
+        shotReady = true; window.__shotReady = true;
+      } else if (shot === 'jumpc' && state.y < 0.6 && state.vy < 0) {
+        // landing: descending, about to touch down
+        shotReady = true; window.__shotReady = true;
+      }
+    }
   }
 }
 
@@ -527,6 +545,10 @@ function frame(now) {
   requestAnimationFrame(frame);
   let dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  // Freeze the staged frame once ready: without this, the game keeps
+  // playing in real time while the screenshot tool waits, and a jump
+  // staged at takeoff would be mid-air or landed by capture time.
+  if (shot && shotReady) { render(0); return; }
   if (state.screen === 'paused') { render(0); return; }
   if (shot && !shotReady) {
     // Don't burn the fast-forward while the GLB yeti is still loading —
@@ -553,7 +575,8 @@ function frame(now) {
 }
 
 // shot-mode auto start (no click needed in headless captures)
-if (shot === 'play' || shot === 'playb' || shot === 'playc' || shot === 'over') {
+if (shot === 'play' || shot === 'playb' || shot === 'playc' || shot === 'over'
+  || shot === 'jumpa' || shot === 'jumpb' || shot === 'jumpc') {
   setScreen('title');
   startRun();
   // 'over' shot: no input is given, so the yeti runs into obstacles until
@@ -575,6 +598,8 @@ window.__game = {
   get dist() { return state.dist; },
   get coins() { return state.coins; },
   get lives() { return state.lives; },
+  get y() { return state.y; },
+  get vy() { return state.vy; },
   start: startRun,
 };
 
