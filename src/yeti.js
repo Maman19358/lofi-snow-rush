@@ -82,6 +82,14 @@ export function createYeti() {
     ['UpperArm.L', 2.0], ['UpperArm.R', 2.0],
     ['LowerArm.L', 1.4], ['LowerArm.R', 1.4],
   ];
+  // Straighten the Run clip's hunch: the brute's run cycle bends the spine
+  // far forward (user: "terlalu membungkuk"). Attenuate the clip-driven
+  // bend on the torso bones so the yeti runs noticeably more upright —
+  // same phase-locked multiply as STRIDE_AMP, so it can never fight the
+  // clip. Run clip only: the Duck slide stays crouched on purpose.
+  const SPINE_STRAIGHTEN = [
+    ['Abdomen', 0.4], ['Torso', 0.45], ['Neck', 0.7],
+  ];
 
   const api = {
     group: g,
@@ -97,6 +105,11 @@ export function createYeti() {
       // stride amplification while running (see STRIDE_AMP)
       if (mixer && currentClip === 'Run') {
         for (const [name, f] of STRIDE_AMP) {
+          const b = bones[name];
+          if (b) b.rotation.x *= f;
+        }
+        // straighten the hunch (see SPINE_STRAIGHTEN)
+        for (const [name, f] of SPINE_STRAIGHTEN) {
           const b = bones[name];
           if (b) b.rotation.x *= f;
         }
@@ -125,9 +138,11 @@ export function createYeti() {
       }
       g.rotation.z = (opts.laneLean || 0) * 0.22;
       // forward lean while running (the model faces local +z = forward)
-      // plus a slight side sway, so the body never reads as standing still
-      // (kept small — the Run clip already hunches the brute forward)
-      modelRoot.rotation.x = 0.08 * run + (opts.airborne ? 0.05 : 0);
+      // plus a slight side sway, so the body never reads as standing still.
+      // Kept small: the Run clip already hunches the brute forward, and the
+      // spine straightening above handles the rest — the yeti must run
+      // upright, never bent double, and never leaning backwards.
+      modelRoot.rotation.x = 0.02 * run + (opts.airborne ? 0.02 : 0);
       modelRoot.rotation.z = Math.sin(t * 11) * 0.02 * run;
       // the Run clip already bobs; add a bit more so the stride reads
       g.position.y = opts.baseY + (opts.airborne ? 0 : Math.abs(Math.sin(t * 11)) * 0.035 * run);
