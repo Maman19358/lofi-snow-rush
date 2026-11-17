@@ -465,7 +465,7 @@ function update(dt) {
       }
     }
     checkCollisions();
-    if (shot === 'play') autopilot();
+    if (shot === 'play' || shot === 'playb') autopilot();
     updateHud();
 
     // yeti pose
@@ -476,13 +476,14 @@ function update(dt) {
       laneLean,
       speedNorm: (state.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED),
       baseY: state.y,
+      running: true,
     });
     // invulnerability flashing
     yeti.group.visible = !(state.invuln > 0 && Math.floor(runClock * 12) % 2 === 0);
   } else {
     // idle scene behind overlays: slow camera drift + gentle yeti breathing
     yeti.group.position.set(0, 0, 0);
-    yeti.animate(runClock, { airborne: false, sliding: false, laneLean: 0, speedNorm: 0, baseY: 0 });
+    yeti.animate(runClock, { airborne: false, sliding: false, laneLean: 0, speedNorm: 0, baseY: 0, running: false });
     yeti.group.visible = true;
   }
 
@@ -502,9 +503,13 @@ function render(dt) {
 
 function checkShotReady() {
   if (!shot || shotReady) return;
+  if (!yeti.ready) return; // wait for the GLB yeti to load before staging
   if (shot === 'start' && state.time > 1.2) {
     shotReady = true; window.__shotReady = true;
   } else if (shot === 'play' && state.screen === 'playing' && state.dist >= 130 && state.coins >= 5) {
+    shotReady = true; window.__shotReady = true;
+  } else if (shot === 'playb' && state.screen === 'playing' && state.dist >= 175 && state.coins >= 5) {
+    // same run as 'play' but ~2 s later, so the run-cycle pose differs
     shotReady = true; window.__shotReady = true;
   } else if (shot === 'over' && state.screen === 'over' && state.time > 0.8) {
     shotReady = true; window.__shotReady = true;
@@ -517,6 +522,9 @@ function frame(now) {
   last = now;
   if (state.screen === 'paused') { render(0); return; }
   if (shot && !shotReady) {
+    // Don't burn the fast-forward while the GLB yeti is still loading —
+    // otherwise the run overshoots the staging point by ~1500 m.
+    if (!yeti.ready) { render(dt); return; }
     // Headless fast-forward: SwiftShader renders at a few fps and dt is
     // clamped, so real-time play would starve the game clock. Run fixed
     // 1/60s logic steps without rendering until the shot is staged.
@@ -534,7 +542,7 @@ function frame(now) {
 }
 
 // shot-mode auto start (no click needed in headless captures)
-if (shot === 'play' || shot === 'over') {
+if (shot === 'play' || shot === 'playb' || shot === 'over') {
   setScreen('title');
   startRun();
   // 'over' shot: no input is given, so the yeti runs into obstacles until
