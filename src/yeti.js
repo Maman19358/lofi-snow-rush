@@ -69,6 +69,13 @@ export function createYeti() {
   let lastT = null;
   let wasAirborne = false;
   let wasSliding = false;
+  // Blend weights so nothing about the jump snaps in one frame (see
+  // JUMP_FIX.md): runWeight 1 = full stride amp / spine straighten
+  // (Run clip), 0 = raw clip pose; airWeight 1 = fully airborne lean.
+  let runWeight = 1;
+  let airWeight = 0;
+  let airTime = 0;    // seconds since takeoff (while airborne)
+  let landTimer = -1; // >= 0 while the Jump_Land clip is playing
   // bones for stride amplification (filled on GLB load)
   const bones = {};
   let hipsBaseY = null;
@@ -102,50 +109,74 @@ export function createYeti() {
       if (lastT !== null) dt = Math.min(0.1, Math.max(0, t - lastT));
       lastT = t;
       if (mixer) mixer.update(dt);
-      // stride amplification while running (see STRIDE_AMP)
-      if (mixer && currentClip === 'Run') {
-        for (const [name, f] of STRIDE_AMP) {
-          const b = bones[name];
-          if (b) b.rotation.x *= f;
-        }
-        // straighten the hunch (see SPINE_STRAIGHTEN)
-        for (const [name, f] of SPINE_STRAIGHTEN) {
-          const b = bones[name];
-          if (b) b.rotation.x *= f;
-        }
-        const hips = bones['Hips'];
-        if (hips && hipsBaseY !== null) {
-          hips.position.y = hipsBaseY + (hips.position.y - hipsBaseY) * 1.6;
-        }
+      // Jump phase tracking: the pack ships Jump (takeoff) + Jump_Idle
+      // (air hold) + Jump_Land (recovery) as separate clips. Chaining
+      // them is what makes the jump read as one motion: the old code
+      // looped the 0.367 s Jump clip over a 0.74 s airtime, so it
+      // snapped back to its start pose mid-air.
+      const airborne = !!opts.airborne;
+      if (airborne && !wasAirborne) { airTime = 0; landTimer = -1; }
+      if (airborne) airTime += dt;
+      if (!airborne && wasAirborne) landTimer = 0;
+      if (landTimer >= 0) {
+        landTimer += dt;
+        if (landTimer > 0.30) landTimer = -1;
       }
 
       const run = opts.running ? Math.max(0.4, Math.min(1, opts.speedNorm || 0)) : 0;
-      // choose clip: slide -> Duck, air -> Jump, running -> Run, else Idle
+      // choose clip: slide -> Duck, takeoff -> Jump, air -> Jump_Idle,
+      // landing -> Jump_Land, running -> Run, else Idle
       let want = 'Idle';
       if (opts.sliding) want = 'Duck';
-      else if (opts.airborne) want = 'Jump';
+      else if (airborne && airTime < 0.34) want = 'Jump';
+      else if (airborne) want = 'Jump_Idle';
+      else if (landTimer >= 0) want = 'Jump_Land';
       else if (opts.running) want = 'Run';
       if (want !== currentClip) playClip(want);
 
-      // pose: the clips carry the crouch/tuck; keep only a mild group squash
-      // for the slide so it reads clearly at speed, plus the old lane lean.
-      if (opts.sliding) {
-        g.scale.set(1.06, 0.82, 1.06);
-      } else if (opts.airborne) {
-        g.scale.set(0.98, 1.04, 0.98);
-      } else {
-        g.scale.set(1, 1, 1);
+      // Blend the stride amp / spine straighten in and out instead of
+      // toggling them with the clip: they used to snap off the frame
+      // the Run clip left (and snap back on at landing), which read as
+      // a jerk. 0.22 s ramp, in step with the 0.18 s clip crossfade.
+      const wTarget = currentClip === 'Run' ? 1 : 0;
+      runWeight += Math.max(-dt / 0.22, Math.min(dt / 0.22, wTarget - runWeight));
+      if (mixer) {
+        for (const [name, f] of STRIDE_AMP) {
+          const b = bones[name];
+          if (b) b.rotation.x *= 1 + (f - 1) * runWeight;
+        }
+        for (const [name, f] of SPINE_STRAIGHTEN) {
+          const b = bones[name];
+          if (b) b.rotation.x *= 1 + (f - 1) * runWeight;
+        }
+        const hips = bones['Hips'];
+        if (hips && hipsBaseY !== null) {
+          hips.position.y = hipsBaseY + (hips.position.y - hipsBaseY) * (1 + 0.6 * runWeight);
+        }
       }
+
+      // Airborne lean + squash ease in/out instead of snapping on the
+      // takeoff/landing frame (same for the slide squash: lerp the
+      // group scale toward its target instead of setting it).
+      const aTarget = airborne ? 1 : 0;
+      airWeight += Math.max(-dt / 0.15, Math.min(dt / 0.15, aTarget - airWeight));
+      const sc = opts.sliding ? [1.06, 0.82, 1.06] : airborne ? [0.98, 1.04, 0.98] : [1, 1, 1];
+      const sk = Math.min(1, dt * 12);
+      g.scale.x += (sc[0] - g.scale.x) * sk;
+      g.scale.y += (sc[1] - g.scale.y) * sk;
+      g.scale.z += (sc[2] - g.scale.z) * sk;
       g.rotation.z = (opts.laneLean || 0) * 0.22;
       // forward lean while running (the model faces local +z = forward)
       // plus a slight side sway, so the body never reads as standing still.
       // Kept small: the Run clip already hunches the brute forward, and the
       // spine straightening above handles the rest — the yeti must run
       // upright, never bent double, and never leaning backwards.
-      modelRoot.rotation.x = 0.02 * run + (opts.airborne ? 0.02 : 0);
+      modelRoot.rotation.x = 0.02 * run + 0.02 * airWeight;
       modelRoot.rotation.z = Math.sin(t * 11) * 0.02 * run;
-      // the Run clip already bobs; add a bit more so the stride reads
-      g.position.y = opts.baseY + (opts.airborne ? 0 : Math.abs(Math.sin(t * 11)) * 0.035 * run);
+      // the Run clip already bobs; add a bit more so the stride reads.
+      // The bob fades out with the stride amp during takeoff instead of
+      // vanishing the frame the yeti leaves the ground.
+      g.position.y = opts.baseY + (airborne ? 0 : Math.abs(Math.sin(t * 11)) * 0.035 * run * runWeight);
       // snow kick-up: one puff per stride, alternating feet, only on the ground
       if (!opts.airborne && !opts.sliding && run > 0.05) {
         puffTimer -= dt;
@@ -252,6 +283,13 @@ export function createYeti() {
         const a = mixer.clipAction(clip);
         a.setLoop(THREE.LoopRepeat, Infinity);
         actions[clip.name] = a;
+      }
+      // Jump / Jump_Land are one-shot phases, never loops: a looped
+      // 0.367 s Jump over a 0.74 s airtime snapped back to its start
+      // pose mid-air. Clamp at the end pose instead, so a timing slip
+      // can only hold the pose, never snap it.
+      for (const n of ['Jump', 'Jump_Land']) {
+        if (actions[n]) { actions[n].setLoop(THREE.LoopOnce, 1); actions[n].clampWhenFinished = true; }
       }
       // The Quaternius Yeti's fur texture is already white with cool-blue
       // shading; keep it untouched (a global tint would blue the whole body).
