@@ -82,18 +82,68 @@ export function createWorld(scene, seed = 1) {
   fill.position.set(-20, 18, 30);
   scene.add(fill);
 
-  // ---------- ground: valley floor + side slopes ----------
-  const snowMat = new THREE.MeshStandardMaterial({ color: 0xe9f1f8, roughness: 0.92 });
-  const trackMat = new THREE.MeshStandardMaterial({ color: 0xc0d0e6, roughness: 0.95 });
-  const slopeMat = new THREE.MeshStandardMaterial({ color: 0xdde8f4, roughness: 0.95, flatShading: true });
+  // ---------- ground: 3D snowy mountain slope (not a flat plane) ----------
+  // Procedural snow texture: soft blue-white blotches + sparkle specks,
+  // used as map + bump so the snow reads as textured, not flat white.
+  function snowTexture(base, blotch, sparkle, size = 256) {
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const g = c.getContext('2d');
+    g.fillStyle = base; g.fillRect(0, 0, size, size);
+    for (let i = 0; i < 140; i++) {
+      const r = 8 + rand() * 30;
+      const x = rand() * size, y = rand() * size;
+      const grad = g.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, blotch);
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grad;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+    for (let i = 0; i < 500; i++) {
+      g.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.85)' : sparkle;
+      const s = rand() < 0.85 ? 1 : 2;
+      g.fillRect(rand() * size, rand() * size, s, s);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  }
+  const snowTex = snowTexture('#e9f1f8', 'rgba(190,214,240,0.35)', 'rgba(207,228,255,0.7)');
+  snowTex.repeat.set(10, 36);
+  const snowMat = new THREE.MeshStandardMaterial({ map: snowTex, bumpMap: snowTex, bumpScale: 0.25, roughness: 0.92 });
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 320), snowMat);
+  // The running surface stays EXACTLY flat (|x| < 4.2) so lanes, jumps and
+  // collisions never change; the terrain rises into drifts and mounds only
+  // outside the track, ramping up smoothly from the track edge.
+  function groundH(x, y) {
+    const edge = Math.max(0, Math.abs(x) - 4.2);
+    if (edge <= 0) return 0;
+    const ramp = Math.min(1, edge / 7);
+    return ramp * (Math.sin(x * 0.55 + y * 0.08) * 0.55
+      + Math.cos(y * 0.13 + x * 0.3) * 0.45
+      + Math.sin((x + y) * 0.21) * 0.35
+      + Math.sin(y * 0.045) * 0.5);
+  }
+  const groundGeo = new THREE.PlaneGeometry(90, 320, 72, 160);
+  {
+    const pos = groundGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      pos.setZ(i, groundH(pos.getX(i), pos.getY(i)));
+    }
+    groundGeo.computeVertexNormals();
+  }
+  const ground = new THREE.Mesh(groundGeo, snowMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, 0, -120);
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // packed track strip (slightly bluer, with soft lane grooves)
+  // packed track strip (slightly bluer, textured, with soft lane grooves)
+  const trackTex = snowTexture('#c3d2e8', 'rgba(147,174,207,0.4)', 'rgba(255,255,255,0.6)');
+  trackTex.repeat.set(2, 40);
+  const trackMat = new THREE.MeshStandardMaterial({ map: trackTex, bumpMap: trackTex, bumpScale: 0.2, roughness: 0.95 });
   const track = new THREE.Mesh(new THREE.PlaneGeometry(TRACK_HALF * 2 + 1.2, 320), trackMat);
   track.rotation.x = -Math.PI / 2;
   track.position.set(0, 0.015, -120);
@@ -109,7 +159,58 @@ export function createWorld(scene, seed = 1) {
     scene.add(groove);
   }
 
+  // groomed snow berms flanking the run — long ridged banks, bumpy along
+  // their length, so the track reads as a carved groove in the mountain.
+  const bermMat = new THREE.MeshStandardMaterial({ map: snowTex, bumpMap: snowTex, bumpScale: 0.3, roughness: 0.95 });
+  for (const s of [-1, 1]) {
+    const bermGeo = new THREE.PlaneGeometry(1.6, 320, 4, 96);
+    const pos = bermGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const u = pos.getX(i), v = pos.getY(i);
+      const profile = Math.max(0, 1 - (u / 0.8) * (u / 0.8));
+      pos.setZ(i, 0.3 * profile + 0.08 * Math.sin(v * 0.5 + s) * profile + 0.05 * Math.sin(v * 1.3) * profile);
+    }
+    bermGeo.computeVertexNormals();
+    const berm = new THREE.Mesh(bermGeo, bermMat);
+    berm.rotation.x = -Math.PI / 2;
+    berm.position.set(s * 4.7, 0.02, -120);
+    berm.receiveShadow = true;
+    scene.add(berm);
+  }
+
+  // snow drifts (flattened mounds) + half-buried rocks along the track edges
+  const driftGeo = new THREE.SphereGeometry(1, 12, 8);
+  for (let i = 0; i < 22; i++) {
+    const d = new THREE.Mesh(driftGeo, snowMat);
+    const side = rand() < 0.5 ? -1 : 1;
+    const sx = 1 + rand() * 2.2;
+    d.scale.set(sx, sx * (0.25 + rand() * 0.2), sx * (0.7 + rand() * 0.6));
+    d.position.set(side * (5.5 + rand() * 14), 0.02, -260 + rand() * 290);
+    d.receiveShadow = true;
+    scene.add(d);
+  }
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0x8fa3b8, roughness: 1, flatShading: true });
+  const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+  for (let i = 0; i < 9; i++) {
+    const r = 0.3 + rand() * 0.55;
+    const rock = new THREE.Mesh(rockGeo, rockMat);
+    const side = rand() < 0.5 ? -1 : 1;
+    rock.scale.set(r, r * 0.55, r * (0.8 + rand() * 0.4));
+    rock.position.set(side * (5 + rand() * 11), r * 0.2, -240 + rand() * 260);
+    rock.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+    rock.castShadow = true; rock.receiveShadow = true;
+    scene.add(rock);
+    // snow cap on some rocks
+    if (i % 2 === 0) {
+      const cap = new THREE.Mesh(driftGeo, snowMat);
+      cap.scale.set(r * 0.9, r * 0.3, r * 0.8);
+      cap.position.set(rock.position.x, r * 0.45, rock.position.z);
+      scene.add(cap);
+    }
+  }
+
   // valley side slopes (angled planes rising away from the track)
+  const slopeMat = new THREE.MeshStandardMaterial({ color: 0xdde8f4, roughness: 0.95, flatShading: true });
   for (const s of [-1, 1]) {
     const slope = new THREE.Mesh(new THREE.PlaneGeometry(60, 320, 1, 24), slopeMat);
     slope.rotation.x = -Math.PI / 2;
