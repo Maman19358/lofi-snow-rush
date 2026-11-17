@@ -180,6 +180,7 @@ export function createWorld(scene, seed = 1) {
 
   // snow drifts (flattened mounds) + half-buried rocks along the track edges
   const driftGeo = new THREE.SphereGeometry(1, 12, 8);
+  const drifts = [];
   for (let i = 0; i < 22; i++) {
     const d = new THREE.Mesh(driftGeo, snowMat);
     const side = rand() < 0.5 ? -1 : 1;
@@ -188,25 +189,34 @@ export function createWorld(scene, seed = 1) {
     d.position.set(side * (5.5 + rand() * 14), 0.02, -260 + rand() * 290);
     d.receiveShadow = true;
     scene.add(d);
+    drifts.push({ mesh: d, baseX: d.position.x });
   }
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x8fa3b8, roughness: 1, flatShading: true });
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+  const rocks = [];
   for (let i = 0; i < 9; i++) {
     const r = 0.3 + rand() * 0.55;
-    const rock = new THREE.Mesh(rockGeo, rockMat);
     const side = rand() < 0.5 ? -1 : 1;
+    const gx = side * (5 + rand() * 11);
+    const gz = -240 + rand() * 260;
+    // one group per rock so its snow cap travels with it when scrolling
+    const g = new THREE.Group();
+    g.position.set(gx, 0, gz);
+    const rock = new THREE.Mesh(rockGeo, rockMat);
     rock.scale.set(r, r * 0.55, r * (0.8 + rand() * 0.4));
-    rock.position.set(side * (5 + rand() * 11), r * 0.2, -240 + rand() * 260);
+    rock.position.set(0, r * 0.2, 0);
     rock.rotation.set(rand() * 3, rand() * 3, rand() * 3);
     rock.castShadow = true; rock.receiveShadow = true;
-    scene.add(rock);
+    g.add(rock);
     // snow cap on some rocks
     if (i % 2 === 0) {
       const cap = new THREE.Mesh(driftGeo, snowMat);
       cap.scale.set(r * 0.9, r * 0.3, r * 0.8);
-      cap.position.set(rock.position.x, r * 0.45, rock.position.z);
-      scene.add(cap);
+      cap.position.set(0, r * 0.45, 0);
+      g.add(cap);
     }
+    scene.add(g);
+    rocks.push({ mesh: g, baseX: gx });
   }
 
   // valley side slopes (angled planes rising away from the track)
@@ -434,11 +444,30 @@ export function createWorld(scene, seed = 1) {
         p.setXYZ(i, x, y, z);
       }
       p.needsUpdate = true;
-      // trees recycle: keep a band of trees ahead of the camera
+      // Side scenery scrolls toward the camera at exactly the track speed
+      // and recycles ahead. Previously trees/drifts/rocks were never moved
+      // at all, so the recycle checks below could never fire (dead code) and
+      // the trees looked frozen while coins/obstacles streamed past.
+      const dz = speed * dt;
       for (const t of trees) {
+        t.mesh.position.z += dz;
         if (t.mesh.position.z > camZ + 14) {
           t.mesh.position.z -= 230;
           t.mesh.position.x = t.baseX * (0.9 + rand() * 0.25);
+        }
+      }
+      for (const d of drifts) {
+        d.mesh.position.z += dz;
+        if (d.mesh.position.z > camZ + 14) {
+          d.mesh.position.z -= 290;
+          d.mesh.position.x = d.baseX * (0.9 + rand() * 0.25);
+        }
+      }
+      for (const r of rocks) {
+        r.mesh.position.z += dz;
+        if (r.mesh.position.z > camZ + 14) {
+          r.mesh.position.z -= 260;
+          r.mesh.position.x = r.baseX * (0.9 + rand() * 0.25);
         }
       }
       // sun halo pulse (subtle)
