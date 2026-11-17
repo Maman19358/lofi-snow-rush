@@ -465,7 +465,7 @@ function update(dt) {
       }
     }
     checkCollisions();
-    if (shot === 'play' || shot === 'playb') autopilot();
+    if (shot === 'play' || shot === 'playb' || shot === 'playc') autopilot();
     updateHud();
 
     // yeti pose
@@ -497,7 +497,10 @@ function update(dt) {
 }
 
 function render(dt) {
-  world.update(dt, state.speed, 0);
+  // Scenery scrolls only while actually playing: on the title screen the
+  // yeti idles against a static backdrop, and on game-over the run is over.
+  // (Paused passes dt=0, so nothing moves there either.)
+  world.update(dt, state.screen === 'playing' ? state.speed : 0, 0);
   renderer.render(scene, camera);
 }
 
@@ -510,6 +513,10 @@ function checkShotReady() {
     shotReady = true; window.__shotReady = true;
   } else if (shot === 'playb' && state.screen === 'playing' && state.dist >= 175 && state.coins >= 5) {
     // same run as 'play' but ~2 s later, so the run-cycle pose differs
+    shotReady = true; window.__shotReady = true;
+  } else if (shot === 'playc' && state.screen === 'playing' && state.dist >= 220 && state.coins >= 5) {
+    // same run as 'play'/'playb' but ~2.5 s after 'playb' — the trees
+    // proof shot: side scenery must be visibly further along than in 'play'
     shotReady = true; window.__shotReady = true;
   } else if (shot === 'over' && state.screen === 'over' && state.time > 0.8) {
     shotReady = true; window.__shotReady = true;
@@ -531,6 +538,10 @@ function frame(now) {
     const FIXED = 1 / 60;
     for (let i = 0; i < 360 && !shotReady; i++) {
       update(FIXED);
+      // keep the side scenery in sync with distance while staging — the
+      // render() call below only advances it by one real frame, so without
+      // this the trees would lag ~90 m behind the entities in screenshots.
+      world.update(FIXED, state.speed, 0);
       checkShotReady();
     }
     render(dt);
@@ -542,7 +553,7 @@ function frame(now) {
 }
 
 // shot-mode auto start (no click needed in headless captures)
-if (shot === 'play' || shot === 'playb' || shot === 'over') {
+if (shot === 'play' || shot === 'playb' || shot === 'playc' || shot === 'over') {
   setScreen('title');
   startRun();
   // 'over' shot: no input is given, so the yeti runs into obstacles until
