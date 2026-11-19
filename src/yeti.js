@@ -69,6 +69,7 @@ export function createYeti() {
   let lastT = null;
   let wasAirborne = false;
   let wasSliding = false;
+  const fb = {}; // primitive-fallback part refs (eyes, body) for blink/breathe
   // Blend weights so nothing about the jump snaps in one frame (see
   // JUMP_FIX.md): runWeight 1 = full stride amp / spine straighten
   // (Run clip), 0 = raw clip pose; airWeight 1 = fully airborne lean.
@@ -76,6 +77,7 @@ export function createYeti() {
   let airWeight = 0;
   let airTime = 0;    // seconds since takeoff (while airborne)
   let landTimer = -1; // >= 0 while the Jump_Land clip is playing
+  let landSquash = 0; // 1 right after touchdown, decays in ~0.22 s (landing squash)
   // bones for stride amplification (filled on GLB load)
   const bones = {};
   let hipsBaseY = null;
@@ -97,6 +99,17 @@ export function createYeti() {
   const SPINE_STRAIGHTEN = [
     ['Abdomen', 0.4], ['Torso', 0.45], ['Neck', 0.7],
   ];
+  // Proportion pass (19 Nov touch-up): the LONG ARMS stay — they are
+  // Lofi's signature. The rest is rebalanced: slightly longer legs,
+  // slightly slimmer torso, slightly bigger head, so the whole figure
+  // reads balanced from the front and the back. legLift raises the model
+  // so the lengthened feet still touch the snow.
+  const PROPORTION = {
+    legY: 1.07,
+    torsoXZ: 0.94,
+    head: 1.08,
+    legLift: 0.08,
+  };
 
   const api = {
     group: g,
@@ -117,11 +130,21 @@ export function createYeti() {
       const airborne = !!opts.airborne;
       if (airborne && !wasAirborne) { airTime = 0; landTimer = -1; }
       if (airborne) airTime += dt;
-      if (!airborne && wasAirborne) landTimer = 0;
+      if (!airborne && wasAirborne) {
+        landTimer = 0;
+        landSquash = 1; // landing squash + snow burst at the feet
+        for (let i = 0; i < 4; i++) {
+          const p = puffs[i];
+          p.age = 0;
+          p.mesh.position.set(-0.3 + i * 0.2, 0.05, -0.4);
+          p.mesh.visible = true;
+        }
+      }
       if (landTimer >= 0) {
         landTimer += dt;
         if (landTimer > 0.30) landTimer = -1;
       }
+      if (landSquash > 0) landSquash = Math.max(0, landSquash - dt / 0.22);
 
       const run = opts.running ? Math.max(0.4, Math.min(1, opts.speedNorm || 0)) : 0;
       // choose clip: slide -> Duck, takeoff -> Jump, air -> Jump_Idle,
@@ -139,7 +162,7 @@ export function createYeti() {
       // the Run clip left (and snap back on at landing), which read as
       // a jerk. 0.22 s ramp, in step with the 0.18 s clip crossfade.
       const wTarget = currentClip === 'Run' ? 1 : 0;
-      runWeight += Math.max(-dt / 0.22, Math.min(dt / 0.22, wTarget - runWeight));
+      runWeight += Math.max(-dt / 0.12, Math.min(dt / 0.12, wTarget - runWeight));
       if (mixer) {
         for (const [name, f] of STRIDE_AMP) {
           const b = bones[name];
@@ -153,15 +176,36 @@ export function createYeti() {
         if (hips && hipsBaseY !== null) {
           hips.position.y = hipsBaseY + (hips.position.y - hipsBaseY) * (1 + 0.6 * runWeight);
         }
+        // Proportion pass (19 Nov): long arms untouched — they are Lofi's
+        // signature. Longer legs, slimmer torso, bigger head, so the figure
+        // reads balanced from the front and the back.
+        for (const n of ['UpperLeg.L', 'UpperLeg.R', 'LowerLeg.L', 'LowerLeg.R']) {
+          const b = bones[n];
+          if (b) b.scale.y = PROPORTION.legY;
+        }
+        for (const n of ['Abdomen', 'Torso']) {
+          const b = bones[n];
+          if (b) { b.scale.x = PROPORTION.torsoXZ; b.scale.z = PROPORTION.torsoXZ; }
+        }
+        const hd = bones['Head'];
+        if (hd) hd.scale.setScalar(PROPORTION.head);
+        // Idle head look-around (title screen): the mixer overwrites the
+        // neck rotation every frame, so this is a one-frame offset — the
+        // same pattern as the stride amp above, it can never fight the clip.
+        if (bones['Neck'] && !opts.running && !airborne) {
+          bones['Neck'].rotation.y += Math.sin(t * 0.55) * 0.28;
+        }
       }
 
       // Airborne lean + squash ease in/out instead of snapping on the
       // takeoff/landing frame (same for the slide squash: lerp the
       // group scale toward its target instead of setting it).
       const aTarget = airborne ? 1 : 0;
-      airWeight += Math.max(-dt / 0.15, Math.min(dt / 0.15, aTarget - airWeight));
-      const sc = opts.sliding ? [1.06, 0.82, 1.06] : airborne ? [0.98, 1.04, 0.98] : [1, 1, 1];
-      const sk = Math.min(1, dt * 12);
+      airWeight += Math.max(-dt / 0.08, Math.min(dt / 0.08, aTarget - airWeight));
+      let sc = opts.sliding ? [1.06, 0.82, 1.06] : airborne ? [0.98, 1.04, 0.98] : [1, 1, 1];
+      if (landSquash > 0) sc = [1 + 0.10 * landSquash, 1 - 0.22 * landSquash, 1 + 0.10 * landSquash];
+      else if (airborne && airTime < 0.25) sc = [0.97, 1.07, 0.97]; // takeoff stretch
+      const sk = Math.min(1, dt * 20);
       g.scale.x += (sc[0] - g.scale.x) * sk;
       g.scale.y += (sc[1] - g.scale.y) * sk;
       g.scale.z += (sc[2] - g.scale.z) * sk;
@@ -173,10 +217,13 @@ export function createYeti() {
       // upright, never bent double, and never leaning backwards.
       modelRoot.rotation.x = 0.02 * run + 0.02 * airWeight;
       modelRoot.rotation.z = Math.sin(t * 11) * 0.02 * run;
+      // Idle breathing (title screen): slow chest rise/fall.
+      const breath = opts.running ? 0 : Math.sin(t * 2.1) * 0.012;
+      modelRoot.scale.set(MODEL_SCALE, MODEL_SCALE * (1 + breath), MODEL_SCALE);
       // the Run clip already bobs; add a bit more so the stride reads.
       // The bob fades out with the stride amp during takeoff instead of
       // vanishing the frame the yeti leaves the ground.
-      g.position.y = opts.baseY + (airborne ? 0 : Math.abs(Math.sin(t * 11)) * 0.035 * run * runWeight);
+      g.position.y = opts.baseY + (airborne ? 0 : Math.abs(Math.sin(t * 11)) * (0.035 + 0.02 * run) * run * runWeight);
       // snow kick-up: one puff per stride, alternating feet, only on the ground
       if (!opts.airborne && !opts.sliding && run > 0.05) {
         puffTimer -= dt;
@@ -207,6 +254,12 @@ export function createYeti() {
       const bs = Math.max(0.55, 1 - h * 0.35);
       blob.scale.set(bs, bs, 1);
       blob.material.opacity = 0.28 * bs;
+      if (!mixer) {
+        // Primitive fallback: blink + breathing (the GLB path has clips).
+        const blink = (t % 3.4) < 0.12 ? 0.15 : 1;
+        if (fb.eyeL) { fb.eyeL.scale.y = blink; fb.eyeR.scale.y = blink; }
+        if (fb.body) fb.body.scale.y = 1.08 * (1 + (opts.running ? 0 : Math.sin(t * 2.1) * 0.02));
+      }
       wasAirborne = !!opts.airborne;
       wasSliding = !!opts.sliding;
     },
@@ -216,8 +269,8 @@ export function createYeti() {
     if (!mixer || !actions[name]) return;
     if (currentClip === name) return;
     const next = actions[name];
-    if (currentClip && actions[currentClip]) actions[currentClip].fadeOut(0.18);
-    next.reset().fadeIn(0.18).play();
+    if (currentClip && actions[currentClip]) actions[currentClip].fadeOut(0.10);
+    next.reset().fadeIn(0.10).play();
     currentClip = name;
   }
 
@@ -227,8 +280,9 @@ export function createYeti() {
     const blue = new THREE.MeshStandardMaterial({ color: 0x3f8cff, roughness: 0.55 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x1a2433, roughness: 0.4 });
     const body = new THREE.Mesh(new THREE.SphereGeometry(0.62, 20, 14), fur);
-    body.scale.set(1, 1.12, 0.92); body.position.y = 0.95; body.castShadow = true;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.44, 20, 14), fur);
+    body.scale.set(0.94, 1.08, 0.9); body.position.y = 0.95; body.castShadow = true;
+    fb.body = body;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.47, 20, 14), fur);
     head.position.y = 1.78; head.castShadow = true;
     const nose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8),
       new THREE.MeshStandardMaterial({ color: 0x274b7a, roughness: 0.5 }));
@@ -239,8 +293,8 @@ export function createYeti() {
       arm.position.set(0.58 * s, 1.06, 0); arm.castShadow = true;
       const hand = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), blue);
       hand.position.set(0.58 * s, 0.78, 0);
-      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.2, 4, 10), fur);
-      leg.position.set(0.26 * s, 0.3, 0);
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.3, 4, 10), fur);
+      leg.position.set(0.26 * s, 0.32, 0);
       const foot = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 8), blue);
       foot.scale.set(1, 0.55, 1.5); foot.position.set(0.26 * s, 0.08, 0.08);
       const ear = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), blue);
@@ -252,7 +306,8 @@ export function createYeti() {
     // eyes (front, +z — the group rotation turns them away from the camera)
     for (const s of [-1, 1]) {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), dark);
-      eye.position.set(0.17 * s, 1.86, 0.38);
+      eye.position.set(0.17 * s, 1.86, 0.4);
+      if (s < 0) fb.eyeL = eye; else fb.eyeR = eye;
       modelRoot.add(eye);
     }
   }
@@ -264,7 +319,7 @@ export function createYeti() {
       const model = gltf.scene;
       // center the model on the group's origin (bind-pose bbox is
       // x -2.32..2.32, z -0.65..0.83, feet at y ~0)
-      model.position.set(0, 0.01, -0.09);
+      model.position.set(0, 0.01 + PROPORTION.legLift, -0.09);
       model.traverse((o) => {
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; }
         if (o.isBone) bones[o.name] = o;

@@ -51,9 +51,9 @@ const hud = $('hud'), scoreEl = $('score-value'), coinEl = $('coin-value'),
   shieldEl = $('shield-badge');
 
 // ---------- game state ----------
-const GRAV = -26;
-const JUMP_V = 9.6;
-const BASE_SPEED = 14, MAX_SPEED = 34, SPEED_RAMP = 0.32;
+const GRAV = -30;
+const JUMP_V = 10.4;
+const BASE_SPEED = 16, MAX_SPEED = 42, SPEED_RAMP = 0.6;
 const SPAWN_Z = -130;
 
 const state = {
@@ -102,12 +102,12 @@ function spawnRow() {
     if (blocked.size === 3) blocked.delete(blocked.has(0) ? 0 : 2);
   }
 
-  if (r < 0.30) {
+  if (r < 0.26) {
     // coin line in one lane
     const lane = freeLane();
     const n = 5 + Math.floor(rand() * 3);
     for (let i = 0; i < n; i++) addEntity('coin', lane, SPAWN_Z - i * 2.3, 1.0);
-  } else if (r < 0.52) {
+  } else if (r < 0.44) {
     // ice block(s) + coin arc over one of them
     for (const lane of blocked) addEntity('ice', lane, SPAWN_Z, 0);
     const arcLane = [...blocked][Math.floor(rand() * blocked.size)];
@@ -116,17 +116,32 @@ function spawnRow() {
     // a few ground coins in a free lane
     const fl = [0, 1, 2].find((l) => !blocked.has(l));
     for (let i = 0; i < 3; i++) addEntity('coin', fl, SPAWN_Z - 8 - i * 2.3, 1.0);
-  } else if (r < 0.66) {
+  } else if (r < 0.56) {
     // crevasse + coins beside it
     for (const lane of blocked) addEntity('gap', lane, SPAWN_Z, 0);
     const fl = [0, 1, 2].find((l) => !blocked.has(l));
     for (let i = 0; i < 4; i++) addEntity('coin', fl, SPAWN_Z - i * 2.3, 1.0);
-  } else if (r < 0.80) {
+  } else if (r < 0.68) {
     // low branch to slide under + low coins
     for (const lane of blocked) addEntity('branch', lane, SPAWN_Z, 0);
     const fl = [0, 1, 2].find((l) => !blocked.has(l));
     for (let i = 0; i < 4; i++) addEntity('coin', fl, SPAWN_Z - i * 2.3, 0.7);
+  } else if (r < 0.76) {
+    // ice rock (jump over) + coins beside it
+    for (const lane of blocked) addEntity('rock', lane, SPAWN_Z, 0);
+    const fl = [0, 1, 2].find((l) => !blocked.has(l));
+    for (let i = 0; i < 4; i++) addEntity('coin', fl, SPAWN_Z - i * 2.3, 1.0);
+  } else if (r < 0.84) {
+    // snowman (jump over) + coins beside it
+    for (const lane of blocked) addEntity('snowman', lane, SPAWN_Z, 0);
+    const fl = [0, 1, 2].find((l) => !blocked.has(l));
+    for (let i = 0; i < 4; i++) addEntity('coin', fl, SPAWN_Z - i * 2.3, 1.0);
   } else if (r < 0.90) {
+    // ice spikes (must jump) + coins beside them
+    for (const lane of blocked) addEntity('spikes', lane, SPAWN_Z, 0);
+    const fl = [0, 1, 2].find((l) => !blocked.has(l));
+    for (let i = 0; i < 4; i++) addEntity('coin', fl, SPAWN_Z - i * 2.3, 1.0);
+  } else if (r < 0.96) {
     // shield crystal with a coin trail leading to it
     const lane = freeLane();
     for (let i = 0; i < 3; i++) addEntity('coin', lane, SPAWN_Z - 6 - i * 2.3, 1.0);
@@ -139,7 +154,9 @@ function spawnRow() {
     const fl = [0, 1, 2].find((l) => !blocked.has(l));
     for (let i = 0; i < 3; i++) addEntity('coin', fl, SPAWN_Z - 6 - i * 2.3, 1.0);
   }
-  nextSpawnDist = state.dist + 15 + rand() * 9;
+  // Row gap grows with speed so the reaction time between rows stays fair
+  // even at the 42 m/s top speed (15 m at 42 m/s would be 0.36 s).
+  nextSpawnDist = state.dist + 17 + state.speed * 0.28 + rand() * 9;
 }
 
 function addEntity(kind, lane, z, y) {
@@ -148,6 +165,9 @@ function addEntity(kind, lane, z, y) {
   else if (kind === 'ice') mesh = world.makeIceBlock();
   else if (kind === 'gap') mesh = world.makeCrevasse();
   else if (kind === 'branch') mesh = world.makeBranch();
+  else if (kind === 'rock') mesh = world.makeIceRock();
+  else if (kind === 'snowman') mesh = world.makeSnowman();
+  else if (kind === 'spikes') mesh = world.makeIceSpikes();
   else mesh = world.makeCrystal();
   mesh.position.set(LANES[lane], 0, z);
   scene.add(mesh);
@@ -168,7 +188,7 @@ function jump() {
 }
 function slide() {
   if (state.screen !== 'playing' || state.y > 0.02) return;
-  if (state.sliding <= 0) { state.sliding = 0.75; audio.slide(); }
+  if (state.sliding <= 0) { state.sliding = 0.6; audio.slide(); }
 }
 
 // ---------- collisions / hits ----------
@@ -222,15 +242,19 @@ function checkCollisions() {
   const px = LANES[state.lane];
   const centerY = 0.95 + state.y;
   for (const e of entities) {
+    // Stop the pass once the run is over: without this, a coin later in the
+    // same frame as the lethal hit still counts, leaving the game-over panel
+    // one coin (20 pts) behind the HUD score.
+    if (state.screen !== 'playing') break;
     if (e.hit || Math.abs(e.z) > 1.0) continue;
     if (Math.abs(LANES[e.lane] - px) > 1.0) continue;
     if (e.kind === 'coin') {
       if (Math.abs(centerY - e.y) < 1.15) onCoin(e);
     } else if (e.kind === 'crystal') {
       if (Math.abs(centerY - 1.0) < 1.3) onCrystal(e);
-    } else if (e.kind === 'ice') {
+    } else if (e.kind === 'ice' || e.kind === 'rock' || e.kind === 'snowman') {
       if (state.y < 0.9) onHit(e);
-    } else if (e.kind === 'gap') {
+    } else if (e.kind === 'gap' || e.kind === 'spikes') {
       if (state.y < 0.45) onHit(e);
     } else if (e.kind === 'branch') {
       if (state.sliding <= 0) onHit(e);
@@ -244,7 +268,7 @@ function updateHud() {
   coinEl.textContent = `◉ ${state.coins}`;
   speedEl.textContent = `${state.speed.toFixed(0)} m/s`;
   if (state.combo > 1 && state.comboTimer > 0) {
-    comboEl.textContent = `COMBO ×${state.combo}`;
+    comboEl.textContent = `KOMBO ×${state.combo}`;
     comboEl.classList.add('on');
   } else comboEl.classList.remove('on');
   shieldEl.hidden = !state.shield;
@@ -254,8 +278,8 @@ function updateLives() {
     `<span class="${i < state.lives ? '' : 'lost'}">❤️</span>`).join('');
 }
 function flashShield() {
-  shieldEl.textContent = '🛡️ Shield absorbed the hit!';
-  setTimeout(() => { shieldEl.textContent = '🛡️ Shield active'; }, 1200);
+  shieldEl.textContent = '🛡️ Perisai menahan serangan!';
+  setTimeout(() => { shieldEl.textContent = '🛡️ Perisai aktif'; }, 700);
 }
 function show(id, on) { $(id).hidden = !on; }
 
@@ -357,30 +381,52 @@ function toggleMute() {
 }
 $('mute-btn').addEventListener('click', toggleMute);
 
+// sui.js stays in English (do not edit it) — its known user-facing messages
+// are translated to Indonesian here at the display site, so no English text
+// ever reaches the player. Unknown messages pass through unchanged.
+const SUI_ID = [
+  [/^DApp Kit loaded, but this build has no wallet modal wired yet\. Install a Sui wallet extension \(Slush\) and tap Connect again\.$/, 'DApp Kit termuat, tapi build ini belum punya jendela dompet. Pasang ekstensi dompet Sui (Slush) lalu ketuk Hubungkan lagi.'],
+  [/^No Sui wallet found\. Install the Slush wallet extension, or play without connecting — scores are saved on this device\.$/, 'Dompet Sui tidak ditemukan. Pasang ekstensi dompet Slush, atau main tanpa menghubungkan — skor tersimpan di perangkat ini.'],
+  [/^Connect a Sui wallet first to submit your score on-chain\. \(Score saved on this device\.\)$/, 'Hubungkan dompet Sui dulu untuk mengirim skor on-chain. (Skor tersimpan di perangkat ini.)'],
+  [/^Wallet does not support signing this transaction\. \(Score saved on this device\.\)$/, 'Dompet tidak mendukung penandatanganan transaksi ini. (Skor tersimpan di perangkat ini.)'],
+  [/^Score (\d+) submitted on-chain! Tx: (.+) \(Also saved on this device\.\)$/, (_, s, tx) => `Skor ${s} terkirim on-chain! Tx: ${tx} (Juga tersimpan di perangkat ini.)`],
+  [/^Score (\d+) submitted on-chain! \(Also saved on this device\.\)$/, (_, s) => `Skor ${s} terkirim on-chain! (Juga tersimpan di perangkat ini.)`],
+  [/^On-chain submit failed \((.*)\)\. Score saved on this device\.$/, (_, e) => `Pengiriman on-chain gagal (${e}). Skor tersimpan di perangkat ini.`],
+  [/^Leaderboard contract not deployed yet — score saved on this device \(local top 10\)\.$/, 'Kontrak papan peringkat belum di-deploy — skor tersimpan di perangkat ini (10 besar lokal).'],
+];
+function idText(s) {
+  if (!s) return s;
+  for (const [re, out] of SUI_ID) {
+    const m = s.match(re);
+    if (m) return typeof out === 'function' ? out(...m) : out;
+  }
+  return s;
+}
+
 $('wallet-btn').addEventListener('click', async () => {
   const btn = $('wallet-btn');
   const status = $('wallet-status');
   btn.disabled = true;
-  status.textContent = 'Connecting…';
+  status.textContent = 'Menghubungkan…';
   status.className = '';
   const res = await SUI.connect();
   btn.disabled = false;
   if (res.ok) {
-    btn.textContent = `Connected: ${res.address.slice(0, 6)}…${res.address.slice(-4)}`;
-    status.textContent = `Wallet connected (${res.via || 'wallet'}). Scores can now be submitted on-chain to the Sui leaderboard.`;
+    btn.textContent = `Terhubung: ${res.address.slice(0, 6)}…${res.address.slice(-4)}`;
+    status.textContent = 'Dompet terhubung. Skor kini bisa dikirim on-chain ke papan peringkat Sui.';
     status.className = 'ok';
   } else {
-    status.textContent = res.detail || 'Wallet not available.';
+    status.textContent = idText(res.detail) || 'Dompet tidak tersedia.';
     status.className = 'err';
   }
 });
 
 $('submit-btn').addEventListener('click', async () => {
   const note = $('submit-note');
-  note.textContent = 'Submitting…';
+  note.textContent = 'Mengirim…';
   note.className = '';
   const res = await SUI.submitScoreToChain(score());
-  note.textContent = res.message;
+  note.textContent = idText(res.message);
   note.className = res.onChain ? 'ok' : '';
 });
 
@@ -397,7 +443,7 @@ function autopilot() {
   for (const e of entities) {
     if (e.hit || e.z > 2 || e.z < -30) continue;
     const d = -e.z;
-    if ((e.kind === 'ice' || e.kind === 'gap' || e.kind === 'branch') && e.lane === state.lane && d < threatD) {
+    if ((e.kind === 'ice' || e.kind === 'gap' || e.kind === 'branch' || e.kind === 'rock' || e.kind === 'snowman' || e.kind === 'spikes') && e.lane === state.lane && d < threatD) {
       threat = e; threatD = d;
     }
     if (e.kind === 'coin' && d < coinD) { coinLane = e.lane; coinD = d; }
@@ -441,9 +487,9 @@ function update(dt) {
       if (state.y <= 0) { state.y = 0; state.vy = 0; }
     }
 
-    // lane smoothing
+    // lane smoothing (snappy: 18/s so a lane change reads instantly)
     const targetX = LANES[state.lane];
-    state.x += (targetX - state.x) * Math.min(1, dt * 12);
+    state.x += (targetX - state.x) * Math.min(1, dt * 18);
     const laneLean = (targetX - state.x) * 0.3;
 
     // entities advance
@@ -497,6 +543,11 @@ function update(dt) {
   const camY = 4.6 + state.y * 0.25 + (Math.random() - 0.5) * sh;
   camera.position.set(camX, camY, 7.6);
   camera.lookAt(state.x * 0.7, 1.2, -8);
+  // ?shot=front: camera in front of the yeti (title idle) to check proportions
+  if (shot === 'front') {
+    camera.position.set(0, 2.0, -7.5);
+    camera.lookAt(0, 1.3, 0);
+  }
 }
 
 function render(dt) {
@@ -511,6 +562,9 @@ function checkShotReady() {
   if (!shot || shotReady) return;
   if (!yeti.ready) return; // wait for the GLB yeti to load before staging
   if (shot === 'start' && state.time > 1.2) {
+    shotReady = true; window.__shotReady = true;
+  } else if (shot === 'front' && state.time > 1.2) {
+    // title idle seen from the front — proportions check
     shotReady = true; window.__shotReady = true;
   } else if (shot === 'play' && state.screen === 'playing' && state.dist >= 130 && state.coins >= 5) {
     shotReady = true; window.__shotReady = true;
@@ -602,6 +656,8 @@ window.__game = {
   get lives() { return state.lives; },
   get y() { return state.y; },
   get vy() { return state.vy; },
+  get entities() { return entities.map((e) => ({ kind: e.kind, lane: e.lane, z: +e.z.toFixed(1) })); },
+  spawnRow, // debug: drive the spawn table directly (distribution checks)
   start: startRun,
 };
 

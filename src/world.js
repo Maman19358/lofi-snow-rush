@@ -286,10 +286,10 @@ export function createWorld(scene, seed = 1) {
     return t;
   }
   const trees = [];
-  for (let i = 0; i < 46; i++) {
-    const t = makeTree(0.9 + rand() * 1.5);
+  for (let i = 0; i < 88; i++) {
+    const t = makeTree(0.7 + rand() * 1.9);
     const side = rand() < 0.5 ? -1 : 1;
-    const x = side * (5.5 + rand() * 22);
+    const x = side * (5.0 + rand() * 24);
     const z = -10 - rand() * 220;
     t.position.set(x, 0, z);
     t.rotation.y = rand() * Math.PI * 2;
@@ -379,6 +379,76 @@ export function createWorld(scene, seed = 1) {
       ic.rotation.x = Math.PI;
       ic.position.set(-0.7 + i * 0.7, 1.1, 0.1);
       m.add(ic);
+    }
+    return m;
+  }
+
+  function makeIceRock() {
+    // batu es: bongkahan es runcing — lompat untuk melewatinya
+    const m = new THREE.Group();
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.65, 0), iceMat);
+    rock.scale.set(1, 1.1, 0.8);
+    rock.position.y = 0.65;
+    rock.rotation.set(0.2, rand() * 3, 0.15);
+    rock.castShadow = true;
+    m.add(rock);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.45, 6), iceEdgeMat);
+    cap.position.set(0.1, 1.35, 0);
+    m.add(cap);
+    const shard = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.45, 5), iceEdgeMat);
+    shard.position.set(-0.45, 1.15, 0.2);
+    shard.rotation.z = -0.3;
+    m.add(shard);
+    return m;
+  }
+
+  function makeSnowman() {
+    // manusia salju (topi + wortel + tangan ranting) — lompat untuk melewatinya
+    const m = new THREE.Group();
+    const snowMat2 = new THREE.MeshStandardMaterial({ color: 0xf6fafd, roughness: 0.9, flatShading: true });
+    const coal = new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.4 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), snowMat2);
+    body.position.y = 0.55;
+    body.castShadow = true;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 10), snowMat2);
+    head.position.y = 1.35;
+    head.castShadow = true;
+    m.add(body, head);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.45, 8),
+      new THREE.MeshStandardMaterial({ color: 0xe86a1c, roughness: 0.6 }));
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, 1.32, 0.45);
+    m.add(nose);
+    for (const s of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), coal);
+      eye.position.set(0.15 * s, 1.45, 0.34);
+      m.add(eye);
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.7, 5), trunkMat);
+      arm.position.set(0.62 * s, 0.75, 0);
+      arm.rotation.z = s * 0.9;
+      m.add(arm);
+    }
+    const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.3, 10), coal);
+    hat.position.y = 1.78;
+    m.add(hat);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.05, 12), coal);
+    brim.position.y = 1.64;
+    m.add(brim);
+    return m;
+  }
+
+  function makeIceSpikes() {
+    // paku es: deretan duri es rendah — harus dilompati
+    const m = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 0.9), iceMat);
+    base.position.y = 0.09;
+    m.add(base);
+    for (let i = 0; i < 4; i++) {
+      const h = 0.45 + rand() * 0.25;
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.16, h, 5), iceEdgeMat);
+      spike.position.set(-0.75 + i * 0.5, 0.18 + h / 2, (i % 2 === 0 ? -0.15 : 0.15));
+      spike.castShadow = true;
+      m.add(spike);
     }
     return m;
   }
@@ -473,6 +543,6 @@ export function createWorld(scene, seed = 1) {
       // sun halo pulse (subtle)
       haloMat.opacity = 0.32 + Math.sin(performance.now() * 0.0006) * 0.05;
     },
-    makeIceBlock, makeCrevasse, makeBranch, makeCoin, makeCrystal,
+    makeIceBlock, makeCrevasse, makeBranch, makeIceRock, makeSnowman, makeIceSpikes, makeCoin, makeCrystal,
   };
 }
