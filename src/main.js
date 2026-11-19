@@ -367,7 +367,7 @@ $('wallet-btn').addEventListener('click', async () => {
   btn.disabled = false;
   if (res.ok) {
     btn.textContent = `Connected: ${res.address.slice(0, 6)}…${res.address.slice(-4)}`;
-    status.textContent = `Wallet connected (${res.via || 'wallet'}). Scores can be submitted on-chain once the leaderboard is live.`;
+    status.textContent = `Wallet connected (${res.via || 'wallet'}). Scores can now be submitted on-chain to the Sui leaderboard.`;
     status.className = 'ok';
   } else {
     status.textContent = res.detail || 'Wallet not available.';
@@ -375,9 +375,11 @@ $('wallet-btn').addEventListener('click', async () => {
   }
 });
 
-$('submit-btn').addEventListener('click', () => {
+$('submit-btn').addEventListener('click', async () => {
   const note = $('submit-note');
-  const res = SUI.submitScoreToChain(score());
+  note.textContent = 'Submitting…';
+  note.className = '';
+  const res = await SUI.submitScoreToChain(score());
   note.textContent = res.message;
   note.className = res.onChain ? 'ok' : '';
 });
