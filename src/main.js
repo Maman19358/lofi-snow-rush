@@ -385,8 +385,8 @@ $('mute-btn').addEventListener('click', toggleMute);
 // are translated to Indonesian here at the display site, so no English text
 // ever reaches the player. Unknown messages pass through unchanged.
 const SUI_ID = [
-  [/^DApp Kit loaded, but this build has no wallet modal wired yet\. Install a Sui wallet extension \(Slush\) and tap Connect again\.$/, 'DApp Kit termuat, tapi build ini belum punya jendela dompet. Pasang ekstensi dompet Sui (Slush) lalu ketuk Hubungkan lagi.'],
   [/^No Sui wallet found\. Install the Slush wallet extension, or play without connecting — scores are saved on this device\.$/, 'Dompet Sui tidak ditemukan. Pasang ekstensi dompet Slush, atau main tanpa menghubungkan — skor tersimpan di perangkat ini.'],
+  [/^Wallet connection failed or was declined in the wallet\. \(Score saved on this device\.\)$/, 'Koneksi dompet gagal atau ditolak di dompet. (Skor tersimpan di perangkat ini.)'],
   [/^Connect a Sui wallet first to submit your score on-chain\. \(Score saved on this device\.\)$/, 'Hubungkan dompet Sui dulu untuk mengirim skor on-chain. (Skor tersimpan di perangkat ini.)'],
   [/^Wallet does not support signing this transaction\. \(Score saved on this device\.\)$/, 'Dompet tidak mendukung penandatanganan transaksi ini. (Skor tersimpan di perangkat ini.)'],
   [/^Score (\d+) submitted on-chain! Tx: (.+) \(Also saved on this device\.\)$/, (_, s, tx) => `Skor ${s} terkirim on-chain! Tx: ${tx} (Juga tersimpan di perangkat ini.)`],
@@ -403,14 +403,29 @@ function idText(s) {
   return s;
 }
 
-$('wallet-btn').addEventListener('click', async () => {
+// Wallet picker: shown when several non-Slush wallets are detected.
+// Returns the chosen wallet name, or null if the player cancels.
+function showWalletPicker(names) {
+  return new Promise((resolve) => {
+    const overlay = $('wallet-picker-overlay');
+    const list = $('wallet-picker-list');
+    list.innerHTML = '';
+    for (const name of names) {
+      const b = document.createElement('button');
+      b.className = 'btn secondary';
+      b.type = 'button';
+      b.textContent = name;
+      b.addEventListener('click', () => { overlay.hidden = true; resolve(name); });
+      list.appendChild(b);
+    }
+    $('wallet-picker-cancel').onclick = () => { overlay.hidden = true; resolve(null); };
+    overlay.hidden = false;
+  });
+}
+
+function handleConnectResult(res) {
   const btn = $('wallet-btn');
   const status = $('wallet-status');
-  btn.disabled = true;
-  status.textContent = 'Menghubungkan…';
-  status.className = '';
-  const res = await SUI.connect();
-  btn.disabled = false;
   if (res.ok) {
     btn.textContent = `Terhubung: ${res.address.slice(0, 6)}…${res.address.slice(-4)}`;
     status.textContent = 'Dompet terhubung. Skor kini bisa dikirim on-chain ke papan peringkat Sui.';
@@ -419,6 +434,29 @@ $('wallet-btn').addEventListener('click', async () => {
     status.textContent = idText(res.detail) || 'Dompet tidak tersedia.';
     status.className = 'err';
   }
+}
+
+$('wallet-btn').addEventListener('click', async () => {
+  const btn = $('wallet-btn');
+  const status = $('wallet-status');
+  btn.disabled = true;
+  status.textContent = 'Menghubungkan…';
+  status.className = '';
+  let res = await SUI.connect();
+  if (!res.ok && res.reason === 'pick') {
+    const name = await showWalletPicker(res.wallets);
+    if (name) {
+      status.textContent = 'Menghubungkan…';
+      res = await SUI.connect({ walletName: name });
+    } else {
+      btn.disabled = false;
+      status.textContent = '';
+      status.className = '';
+      return;
+    }
+  }
+  btn.disabled = false;
+  handleConnectResult(res);
 });
 
 $('submit-btn').addEventListener('click', async () => {
