@@ -104,6 +104,8 @@
   .stat .l { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
   #submit-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); min-height: 18px; }
   #submit-note.ok { color: #7be3a8; }
+  #badge-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); min-height: 18px; }
+  #badge-note.ok { color: #7be3a8; }
   .new-best {
     display: inline-block; margin: 0 0 8px; padding: 3px 10px; border-radius: 999px;
     background: var(--accent); color: #1a2436; font-weight: 700; font-size: 13px;
@@ -205,6 +207,8 @@
     <button class="btn" id="again-btn" type="button" data-i18n="again">↻&nbsp; Lari Lagi</button>
     <button class="btn secondary" id="submit-btn" type="button" data-i18n="submit">Kirim Skor ke Papan Peringkat Sui</button>
     <p id="submit-note"></p>
+    <button class="btn secondary" id="mint-btn" type="button" data-i18n="badgeMint" hidden>🏅 Ambil Badge</button>
+    <p id="badge-note"></p>
     <button class="btn secondary" id="menu-btn" type="button" data-i18n="menu">🏠&nbsp; Kembali ke Menu</button>
   </section>
 </div>
