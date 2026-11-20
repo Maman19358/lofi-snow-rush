@@ -148,30 +148,28 @@ export function createWorld(scene, seed = 1) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Zebra track (20 Nov 2026, user: "zebra aja lantainya hitam putih"):
-  // bold black/white bands ACROSS the track (perpendicular to the run
-  // direction), repeating along its length, so the white yeti always has
-  // a black band nearby for contrast. The snow outside the track stays
-  // white. Bands vary along V (the length axis); with repeat (2, 40) one
-  // tile covers 8 world units, so 2 black bands per tile = 2-unit black
-  // bands alternating with 2-unit white gaps. The yeti stays white +
-  // blue by design — the track does the contrasting, not the yeti.
-  function zebraTexture(size = 256) {
+  // Asphalt track (20 Nov 2026, user: "Kl bikin ky aspal aja gmn bro"):
+  // the zebra bands strobed in motion and made the user dizzy, so the
+  // track is now a calm solid asphalt road — DARKISH grey (#4b515a,
+  // darkened a step from #5b626b per user 22:11 WIB "Gelapin dikit
+  // lagi"), still clearly lighter than near-black (#3a3f46 was too
+  // dark, #6e757d too light). Still darker than the white yeti and
+  // snow, so the yeti reads clearly. Low-contrast grain only, NO
+  // repeating/dashed/crosswise patterns. The snow outside the
+  // track stays white; the yeti stays white + blue by design.
+  function asphaltTexture(size = 256) {
     const c = document.createElement('canvas');
     c.width = size; c.height = size;
     const g = c.getContext('2d');
-    g.fillStyle = '#f4f7fb';
+    g.fillStyle = '#4b515a';
     g.fillRect(0, 0, size, size);
-    g.fillStyle = '#14181f';
-    const band = size / 4;
-    g.fillRect(0, 0, size, band);
-    g.fillRect(0, size / 2, size, band);
-    // faint sparkle on the white bands only, so the snow still reads
-    // as snow instead of flat paint
-    for (let i = 0; i < 120; i++) {
-      const y = (rand() < 0.5 ? size / 4 : 3 * size / 4) + rand() * band;
-      g.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.9)' : 'rgba(200,215,235,0.6)';
-      g.fillRect(rand() * size, y, 2, 2);
+    // fine low-contrast grain: single-pixel speckles barely lighter or
+    // darker than the base, so the surface feels like asphalt without
+    // any visible pattern that could repeat or strobe in motion
+    for (let i = 0; i < 2600; i++) {
+      const v = rand();
+      g.fillStyle = v < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.07)';
+      g.fillRect(rand() * size, rand() * size, 1.5, 1.5);
     }
     const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -179,7 +177,7 @@ export function createWorld(scene, seed = 1) {
     t.anisotropy = 4;
     return t;
   }
-  const trackTex = zebraTexture();
+  const trackTex = asphaltTexture();
   trackTex.repeat.set(2, 40);
   const trackMat = new THREE.MeshStandardMaterial({ map: trackTex, bumpMap: trackTex, bumpScale: 0.2, roughness: 0.95 });
   const track = new THREE.Mesh(new THREE.PlaneGeometry(TRACK_HALF * 2 + 1.2, 320), trackMat);
@@ -187,6 +185,7 @@ export function createWorld(scene, seed = 1) {
   track.position.set(0, 0.015, -120);
   track.receiveShadow = true;
   scene.add(track);
+  // lane grooves (neutral grey, solid lines along the run direction)
   for (const x of [-1.1, 1.1]) {
     const groove = new THREE.Mesh(
       new THREE.PlaneGeometry(0.14, 320),
@@ -195,6 +194,17 @@ export function createWorld(scene, seed = 1) {
     groove.rotation.x = -Math.PI / 2;
     groove.position.set(x, 0.03, -120);
     scene.add(groove);
+  }
+  // thin solid edge lines along both sides of the asphalt, like a road's
+  // edge markings — solid, not dashed, so nothing strobes in motion
+  for (const x of [-3.85, 3.85]) {
+    const edge = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.1, 320),
+      new THREE.MeshStandardMaterial({ color: 0xd8dee6, roughness: 1 }),
+    );
+    edge.rotation.x = -Math.PI / 2;
+    edge.position.set(x, 0.03, -120);
+    scene.add(edge);
   }
 
   // groomed snow berms flanking the run — long ridged banks, bumpy along
