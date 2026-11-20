@@ -50,6 +50,153 @@ const hud = $('hud'), scoreEl = $('score-value'), coinEl = $('coin-value'),
   speedEl = $('speed-value'), livesEl = $('lives'), comboEl = $('combo'),
   shieldEl = $('shield-badge');
 
+// ---------- language (ID/EN toggle) ----------
+// UI strings only — game logic, physics, scoring and the Sui submit flow
+// in sui.js are untouched. Default Indonesian; choice persists in localStorage.
+const I18N = {
+  id: {
+    tagline: 'Lofi si Yeti meluncur menuruni gunung saat matahari terbenam. Kumpulkan koin SUI, lompat esnya, seluncur di bawah dahan — sejauh apa kamu bisa lari?',
+    keyartAlt: 'Lofi si Yeti berlari menuruni gunung bersalju saat matahari terbenam sambil mengumpulkan koin emas',
+    play: '▶  Mulai Lari',
+    walletConnect: 'Hubungkan Dompet Sui',
+    keysLane: 'Ganti jalur  ·  geser ◀ ▶',
+    keysJump: 'Lompat  ·  geser ▲',
+    keysSlide: 'Meluncur  ·  geser ▼',
+    keysPause: 'Jeda',
+    keysMute: 'Bisukan',
+    best: 'Skor terbaik:',
+    foot: 'CLAY Hackathon III · Lomba: mini-game Lofi · Dibangun di Sui',
+    pickerTitle: 'Pilih Dompet',
+    pickerText: 'Beberapa dompet Sui terdeteksi di perangkat ini. Pilih satu untuk dihubungkan.',
+    pickerCancel: 'Batal',
+    pauseTitle: 'Jeda',
+    pauseText: 'Tarik napas dulu. Gunung menanti.',
+    resume: '▶  Lanjutkan',
+    restart: '↻  Ulangi Lari',
+    quit: '🏠  Kembali ke Menu',
+    newBest: '★ Rekor Baru!',
+    overTitle: 'Terjungkal!',
+    overText: 'Lofi terjatuh di salju. Gunung menang kali ini.',
+    statScore: 'Skor',
+    statCoins: 'Koin',
+    statDist: 'Jarak',
+    statCombo: 'Kombo Terbaik',
+    again: '↻  Lari Lagi',
+    submit: 'Kirim Skor ke Papan Peringkat Sui',
+    menu: '🏠  Kembali ke Menu',
+    hudScore: 'Skor',
+    hudCoins: 'Koin',
+    livesAria: 'nyawa',
+    shieldActive: '🛡️ Perisai aktif',
+    shieldBlock: '🛡️ Perisai menahan serangan!',
+    muteTitle: 'Bisukan (M)',
+    pauseTitleAttr: 'Jeda (P)',
+    combo: 'KOMBO',
+    walletConnected: 'Terhubung:',
+    walletStatusOk: 'Dompet terhubung. Skor kini bisa dikirim on-chain ke papan peringkat Sui.',
+    walletUnavailable: 'Dompet tidak tersedia.',
+    connecting: 'Menghubungkan…',
+    submitting: 'Mengirim…',
+  },
+  en: {
+    tagline: 'Lofi the Yeti races down the mountain at sunset. Collect SUI coins, jump the ice, slide under the branches — how far can you run?',
+    keyartAlt: 'Lofi the Yeti running down a snowy mountain at sunset while collecting gold coins',
+    play: '▶  Start Running',
+    walletConnect: 'Connect Sui Wallet',
+    keysLane: 'Switch lanes  ·  swipe ◀ ▶',
+    keysJump: 'Jump  ·  swipe ▲',
+    keysSlide: 'Slide  ·  swipe ▼',
+    keysPause: 'Pause',
+    keysMute: 'Mute',
+    best: 'Best score:',
+    foot: 'CLAY Hackathon III · Track: Lofi mini-game · Built on Sui',
+    pickerTitle: 'Choose a Wallet',
+    pickerText: 'Several Sui wallets were detected on this device. Choose one to connect.',
+    pickerCancel: 'Cancel',
+    pauseTitle: 'Paused',
+    pauseText: 'Catch your breath. The mountain awaits.',
+    resume: '▶  Resume',
+    restart: '↻  Restart Run',
+    quit: '🏠  Back to Menu',
+    newBest: '★ New Record!',
+    overTitle: 'Wipeout!',
+    overText: 'Lofi tumbled in the snow. The mountain wins this time.',
+    statScore: 'Score',
+    statCoins: 'Coins',
+    statDist: 'Distance',
+    statCombo: 'Best Combo',
+    again: '↻  Run Again',
+    submit: 'Submit Score to the Sui Leaderboard',
+    menu: '🏠  Back to Menu',
+    hudScore: 'Score',
+    hudCoins: 'Coins',
+    livesAria: 'lives',
+    shieldActive: '🛡️ Shield active',
+    shieldBlock: '🛡️ Shield blocked the hit!',
+    muteTitle: 'Mute (M)',
+    pauseTitleAttr: 'Pause (P)',
+    combo: 'COMBO',
+    walletConnected: 'Connected:',
+    walletStatusOk: 'Wallet connected. Scores can now be sent on-chain to the Sui leaderboard.',
+    walletUnavailable: 'Wallet unavailable.',
+    connecting: 'Connecting…',
+    submitting: 'Submitting…',
+  },
+};
+let lang = 'id';
+try { if (localStorage.getItem('lofi-snow-rush-lang') === 'en') lang = 'en'; } catch { /* ignore */ }
+const t = (key) => (I18N[lang] && I18N[lang][key]) || I18N.id[key] || key;
+
+// Dynamic wallet/submit state, remembered so a language toggle can
+// re-render them without re-running any wallet call.
+let connectedAddress = null;
+let lastWalletDetail = '';
+let lastSubmitRaw = '';
+let lastSubmitOnChain = false;
+
+function renderWalletBtn() {
+  const btn = $('wallet-btn');
+  btn.textContent = connectedAddress
+    ? `${t('walletConnected')} ${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`
+    : t('walletConnect');
+}
+function renderWalletStatus() {
+  const status = $('wallet-status');
+  if (connectedAddress) {
+    status.textContent = t('walletStatusOk');
+    status.className = 'ok';
+  } else if (lastWalletDetail) {
+    status.textContent = lang === 'id' ? idText(lastWalletDetail) : lastWalletDetail;
+    status.className = 'err';
+  }
+}
+function renderSubmitNote() {
+  const note = $('submit-note');
+  if (!lastSubmitRaw) return;
+  note.textContent = lang === 'id' ? idText(lastSubmitRaw) : lastSubmitRaw;
+  note.className = lastSubmitOnChain ? 'ok' : '';
+}
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-alt]').forEach((el) => { el.alt = t(el.dataset.i18nAlt); });
+  $('mute-btn').title = t('muteTitle');
+  $('pause-btn').title = t('pauseTitleAttr');
+  $('lives').setAttribute('aria-label', t('livesAria'));
+  document.querySelectorAll('.lang-btn').forEach((b) => { b.textContent = lang === 'id' ? '🌐 EN' : '🌐 ID'; });
+  renderWalletBtn();
+  renderWalletStatus();
+  renderSubmitNote();
+}
+function setLang(next) {
+  lang = next === 'en' ? 'en' : 'id';
+  try { localStorage.setItem('lofi-snow-rush-lang', lang); } catch { /* ignore */ }
+  applyLang();
+}
+$('lang-btn-start').addEventListener('click', () => setLang(lang === 'id' ? 'en' : 'id'));
+$('lang-btn-over').addEventListener('click', () => setLang(lang === 'id' ? 'en' : 'id'));
+applyLang();
+
 // ---------- game state ----------
 const GRAV = -30;
 const JUMP_V = 10.4;
@@ -268,7 +415,7 @@ function updateHud() {
   coinEl.textContent = `◉ ${state.coins}`;
   speedEl.textContent = `${state.speed.toFixed(0)} m/s`;
   if (state.combo > 1 && state.comboTimer > 0) {
-    comboEl.textContent = `KOMBO ×${state.combo}`;
+    comboEl.textContent = `${t('combo')} ×${state.combo}`;
     comboEl.classList.add('on');
   } else comboEl.classList.remove('on');
   shieldEl.hidden = !state.shield;
@@ -278,8 +425,8 @@ function updateLives() {
     `<span class="${i < state.lives ? '' : 'lost'}">❤️</span>`).join('');
 }
 function flashShield() {
-  shieldEl.textContent = '🛡️ Perisai menahan serangan!';
-  setTimeout(() => { shieldEl.textContent = '🛡️ Perisai aktif'; }, 700);
+  shieldEl.textContent = t('shieldBlock');
+  setTimeout(() => { shieldEl.textContent = t('shieldActive'); }, 700);
 }
 function show(id, on) { $(id).hidden = !on; }
 
@@ -323,6 +470,8 @@ function gameOver() {
   $('new-best').hidden = !isBest;
   $('submit-note').textContent = '';
   $('submit-note').className = '';
+  lastSubmitRaw = '';
+  lastSubmitOnChain = false;
   setScreen('over');
   audio.gameOver();
 }
@@ -381,9 +530,9 @@ function toggleMute() {
 }
 $('mute-btn').addEventListener('click', toggleMute);
 
-// sui.js stays in English (do not edit it) — its known user-facing messages
-// are translated to Indonesian here at the display site, so no English text
-// ever reaches the player. Unknown messages pass through unchanged.
+// sui.js stays in English (do not edit it) — in Indonesian mode its known
+// user-facing messages are translated here at the display site; in English
+// mode they pass through unchanged. Unknown messages pass through unchanged.
 const SUI_ID = [
   [/^No Sui wallet found\. Install the Slush wallet extension, or play without connecting — scores are saved on this device\.$/, 'Dompet Sui tidak ditemukan. Pasang ekstensi dompet Slush, atau main tanpa menghubungkan — skor tersimpan di perangkat ini.'],
   [/^Wallet connection failed or was declined in the wallet\. \(Score saved on this device\.\)$/, 'Koneksi dompet gagal atau ditolak di dompet. (Skor tersimpan di perangkat ini.)'],
@@ -395,7 +544,8 @@ const SUI_ID = [
   [/^Leaderboard contract not deployed yet — score saved on this device \(local top 10\)\.$/, 'Kontrak papan peringkat belum di-deploy — skor tersimpan di perangkat ini (10 besar lokal).'],
 ];
 function idText(s) {
-  if (!s) return s;
+  // English mode passes sui.js messages through untouched.
+  if (!s || lang !== 'id') return s;
   for (const [re, out] of SUI_ID) {
     const m = s.match(re);
     if (m) return typeof out === 'function' ? out(...m) : out;
@@ -424,14 +574,17 @@ function showWalletPicker(names) {
 }
 
 function handleConnectResult(res) {
-  const btn = $('wallet-btn');
   const status = $('wallet-status');
   if (res.ok) {
-    btn.textContent = `Terhubung: ${res.address.slice(0, 6)}…${res.address.slice(-4)}`;
-    status.textContent = 'Dompet terhubung. Skor kini bisa dikirim on-chain ke papan peringkat Sui.';
+    connectedAddress = res.address;
+    lastWalletDetail = '';
+    renderWalletBtn();
+    status.textContent = t('walletStatusOk');
     status.className = 'ok';
   } else {
-    status.textContent = idText(res.detail) || 'Dompet tidak tersedia.';
+    connectedAddress = null;
+    lastWalletDetail = res.detail || '';
+    status.textContent = idText(res.detail) || t('walletUnavailable');
     status.className = 'err';
   }
 }
@@ -440,13 +593,13 @@ $('wallet-btn').addEventListener('click', async () => {
   const btn = $('wallet-btn');
   const status = $('wallet-status');
   btn.disabled = true;
-  status.textContent = 'Menghubungkan…';
+  status.textContent = t('connecting');
   status.className = '';
   let res = await SUI.connect();
   if (!res.ok && res.reason === 'pick') {
     const name = await showWalletPicker(res.wallets);
     if (name) {
-      status.textContent = 'Menghubungkan…';
+      status.textContent = t('connecting');
       res = await SUI.connect({ walletName: name });
     } else {
       btn.disabled = false;
@@ -461,11 +614,12 @@ $('wallet-btn').addEventListener('click', async () => {
 
 $('submit-btn').addEventListener('click', async () => {
   const note = $('submit-note');
-  note.textContent = 'Mengirim…';
+  note.textContent = t('submitting');
   note.className = '';
   const res = await SUI.submitScoreToChain(score());
-  note.textContent = idText(res.message);
-  note.className = res.onChain ? 'ok' : '';
+  lastSubmitRaw = res.message || '';
+  lastSubmitOnChain = !!res.onChain;
+  renderSubmitNote();
 });
 
 // auto-pause when the tab is hidden (mobile friendly)
