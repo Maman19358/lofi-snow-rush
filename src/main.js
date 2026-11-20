@@ -29,7 +29,9 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.3; // raised 20 Nov 2026 (was 1.05) — the
+// ground/track read nearly black on the user's phone; the sky is a custom
+// shader (not tone-mapped), so the sunset look is unchanged.
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.getElementById('game').appendChild(renderer.domElement);
 
@@ -97,6 +99,10 @@ const I18N = {
     walletUnavailable: 'Dompet tidak tersedia.',
     connecting: 'Menghubungkan…',
     submitting: 'Mengirim…',
+    badgeMint: '🏅 Ambil Badge',
+    badgeMinting: 'Mencetak badge…',
+    badgeMintedBtn: '✓ Badge Tercetak',
+    badgeNeedConnect: 'Hubungkan dompet Sui dulu untuk mencetak badge.',
   },
   en: {
     tagline: 'Lofi the Yeti races down the mountain at sunset. Collect SUI coins, jump the ice, slide under the branches — how far can you run?',
@@ -141,6 +147,10 @@ const I18N = {
     walletUnavailable: 'Wallet unavailable.',
     connecting: 'Connecting…',
     submitting: 'Submitting…',
+    badgeMint: '🏅 Mint Badge',
+    badgeMinting: 'Minting badge…',
+    badgeMintedBtn: '✓ Badge Minted',
+    badgeNeedConnect: 'Connect a Sui wallet first to mint a badge.',
   },
 };
 let lang = 'id';
@@ -153,6 +163,9 @@ let connectedAddress = null;
 let lastWalletDetail = '';
 let lastSubmitRaw = '';
 let lastSubmitOnChain = false;
+let lastMintRaw = '';
+let lastMintOnChain = false;
+let badgeMinted = false;
 
 function renderWalletBtn() {
   const btn = $('wallet-btn');
@@ -176,6 +189,12 @@ function renderSubmitNote() {
   note.textContent = lang === 'id' ? idText(lastSubmitRaw) : lastSubmitRaw;
   note.className = lastSubmitOnChain ? 'ok' : '';
 }
+function renderBadgeNote() {
+  const note = $('badge-note');
+  if (!lastMintRaw) return;
+  note.textContent = lang === 'id' ? idText(lastMintRaw) : lastMintRaw;
+  note.className = lastMintOnChain ? 'ok' : '';
+}
 function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
@@ -187,6 +206,8 @@ function applyLang() {
   renderWalletBtn();
   renderWalletStatus();
   renderSubmitNote();
+  renderBadgeNote();
+  if (badgeMinted) $('mint-btn').textContent = t('badgeMintedBtn');
 }
 function setLang(next) {
   lang = next === 'en' ? 'en' : 'id';
@@ -472,6 +493,14 @@ function gameOver() {
   $('submit-note').className = '';
   lastSubmitRaw = '';
   lastSubmitOnChain = false;
+  $('mint-btn').hidden = true;
+  $('mint-btn').disabled = false;
+  $('mint-btn').textContent = t('badgeMint');
+  $('badge-note').textContent = '';
+  $('badge-note').className = '';
+  lastMintRaw = '';
+  lastMintOnChain = false;
+  badgeMinted = false;
   setScreen('over');
   audio.gameOver();
 }
@@ -542,6 +571,12 @@ const SUI_ID = [
   [/^Score (\d+) submitted on-chain! \(Also saved on this device\.\)$/, (_, s) => `Skor ${s} terkirim on-chain! (Juga tersimpan di perangkat ini.)`],
   [/^On-chain submit failed \((.*)\)\. Score saved on this device\.$/, (_, e) => `Pengiriman on-chain gagal (${e}). Skor tersimpan di perangkat ini.`],
   [/^Leaderboard contract not deployed yet — score saved on this device \(local top 10\)\.$/, 'Kontrak papan peringkat belum di-deploy — skor tersimpan di perangkat ini (10 besar lokal).'],
+  [/^Badge minted on-chain! Tx: (.+) \(Score (\d+)\.\)$/, (_, tx, s) => `Badge tercetak on-chain! Tx: ${tx} (Skor ${s}.)`],
+  [/^Badge minted on-chain! \(Score (\d+)\.\)$/, (_, s) => `Badge tercetak on-chain! (Skor ${s}.)`],
+  [/^Badge mint failed \((.*)\)\.$/, (_, e) => `Pencetakan badge gagal (${e}).`],
+  [/^Connect a Sui wallet first to mint a badge\.$/, 'Hubungkan dompet Sui dulu untuk mencetak badge.'],
+  [/^Badge contract not deployed yet\.$/, 'Kontrak badge belum di-deploy.'],
+  [/^Wallet does not support signing this transaction\.$/, 'Dompet tidak mendukung penandatanganan transaksi ini.'],
 ];
 function idText(s) {
   // English mode passes sui.js messages through untouched.
@@ -620,6 +655,26 @@ $('submit-btn').addEventListener('click', async () => {
   lastSubmitRaw = res.message || '';
   lastSubmitOnChain = !!res.onChain;
   renderSubmitNote();
+  if (res.onChain) $('mint-btn').hidden = false;
+});
+
+$('mint-btn').addEventListener('click', async () => {
+  const btn = $('mint-btn');
+  const note = $('badge-note');
+  btn.disabled = true;
+  note.textContent = t('badgeMinting');
+  note.className = '';
+  const res = await SUI.mintBadge(score());
+  lastMintRaw = res.message || '';
+  lastMintOnChain = !!res.onChain;
+  renderBadgeNote();
+  if (res.onChain) {
+    // One badge per run; a new run resets the button.
+    badgeMinted = true;
+    btn.textContent = t('badgeMintedBtn');
+  } else {
+    btn.disabled = false;
+  }
 });
 
 // auto-pause when the tab is hidden (mobile friendly)

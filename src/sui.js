@@ -7,6 +7,17 @@
 // submitScoreToChain() sends a real moveCall (leaderboard::submit_score)
 // when a wallet is connected, and always keeps the local top-10 fallback.
 //
+// The Snow Rush Badge NFT contract is DEPLOYED on Sui testnet (20 Nov 2026):
+//   Package ID:  0xa2faf1fd27657b479024eda996f8fa7ca9a3ce7ba7020ac68f55b39d4d8787f6
+//   Publish tx:  7Ra88SFF8R6iYz1FaNvF7iWwyoh6EoRrMP894yE7V3GX
+//   Display V2:  HKpiDz47Bik4QqAFhYZPuNMmXEcHjVnFqktKtYMrprPQ (register_display)
+//   Publisher:   0x9bb6b186b7442e3e35fcf2846268826e9f4a9d09bed70983f17fbf3211a8ada5
+//   UpgradeCap:  0xf519968a101490dd903c06a424f3385745e099db1bdeb12ffe03afc0b02d3089
+//   Proof mint:  6V1cMnGgJ5m6xngjpGneKxyi6tMnqaRuTHSLjRZAkyut (score 22358, badge
+//                0x1afb094fb8d6e7676728228fa9e5330df09498ab34a854a4caa77a2aca5ec1ef)
+// mintBadge() sends a real moveCall (badge::mint) when a wallet is connected.
+// The badge holds minter + score + epoch + art URL (game keyart).
+//
 // Wallet connect (fixed 19 Nov 2026): modern Slush no longer injects the
 // legacy `window.sui` object — it registers through the Wallet Standard.
 // connect() therefore detects wallets with @mysten/wallet-standard's
@@ -21,6 +32,7 @@
 export const SUI = {
   LEADERBOARD_PACKAGE_ID: '0x743c045df0051a564be60b35b37d2a2936acc0a5d8e1843c144a3ac98deda280',
   LEADERBOARD_OBJECT_ID: '0x6052e73abaa237e3ee7ec50961755a49bd3b95dfe23d723974cd6cb542fa95cb',
+  BADGE_PACKAGE_ID: '0xa2faf1fd27657b479024eda996f8fa7ca9a3ce7ba7020ac68f55b39d4d8787f6',
   connected: false,
   address: null,
   _wallet: null,
@@ -182,6 +194,61 @@ export const SUI = {
       return {
         ok: false, onChain: false,
         message: `On-chain submit failed (${e?.message || e}). Score saved on this device.`,
+      };
+    }
+  },
+
+  // Called from the game-over screen AFTER a successful on-chain score
+  // submit. Mints a Snow Rush Badge NFT (badge::mint) holding the run's
+  // score + minter + epoch + keyart URL. The signing path intentionally
+  // mirrors submitScoreToChain() (duplicated, not refactored) so the proven
+  // submit flow stays untouched.
+  async mintBadge(score) {
+    if (!this.BADGE_PACKAGE_ID) {
+      return { ok: false, onChain: false, message: 'Badge contract not deployed yet.' };
+    }
+    if (!this.connected) {
+      return { ok: false, onChain: false, message: 'Connect a Sui wallet first to mint a badge.' };
+    }
+    try {
+      const { Transaction } = await import('https://esm.sh/@mysten/sui@2.39.1/transactions');
+      const tx = new Transaction();
+      if (this.address) tx.setSender(this.address);
+      tx.moveCall({
+        target: `${this.BADGE_PACKAGE_ID}::badge::mint`,
+        arguments: [tx.pure.u64(Math.floor(score))],
+      });
+      let res;
+      if (this._wallet) {
+        const { signAndExecuteTransaction } = await import('https://esm.sh/@mysten/wallet-standard@0.21.38');
+        res = await signAndExecuteTransaction(this._wallet, {
+          transaction: tx,
+          account: this._account,
+          chain: 'sui:testnet',
+        });
+      } else {
+        const wallet = window.sui;
+        if (wallet && typeof wallet.signAndExecuteTransaction === 'function') {
+          res = await wallet.signAndExecuteTransaction({ transaction: tx });
+        } else if (wallet && typeof wallet.signAndExecuteTransactionBlock === 'function') {
+          res = await wallet.signAndExecuteTransactionBlock({ transactionBlock: tx });
+        } else {
+          return {
+            ok: false, onChain: false,
+            message: 'Wallet does not support signing this transaction.',
+          };
+        }
+      }
+      const digest = res?.digest || res?.transaction?.digest || '';
+      return {
+        ok: true, onChain: true, digest,
+        message: `Badge minted on-chain!${digest ? ` Tx: ${digest.slice(0, 12)}…` : ''} (Score ${Math.floor(score)}.)`,
+      };
+    } catch (e) {
+      console.warn('[sui] badge mint failed', e);
+      return {
+        ok: false, onChain: false,
+        message: `Badge mint failed (${e?.message || e}).`,
       };
     }
   },

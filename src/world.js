@@ -68,17 +68,25 @@ export function createWorld(scene, seed = 1) {
   scene.add(sunGroup);
 
   // ---------- lighting ----------
-  const sun = new THREE.DirectionalLight(0xffb36b, 2.2);
+  // Brightened 20 Nov 2026 (user's phone screenshot: the ground/track read
+  // nearly black while the sky stayed bright). The sunset look is kept —
+  // the sky shader is untouched — but the play surface now gets much more
+  // light: stronger sun + hemisphere + fill, softer shadows (shadowed
+  // ground keeps ~45% of direct light instead of going fully dark — on
+  // mobile GPUs large shadowed areas were reading as black), and a
+  // lighter packed-track texture so the lanes stay readable on a phone.
+  const sun = new THREE.DirectionalLight(0xffb36b, 2.6);
   sun.position.set(28, 42, 18);
   sun.castShadow = true;
+  sun.shadow.intensity = 0.55;
   sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
   sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -30;
   sun.shadow.camera.near = 5; sun.shadow.camera.far = 120;
   sun.shadow.bias = -0.002;
   scene.add(sun);
-  scene.add(new THREE.HemisphereLight(0x8fa8d8, 0xe8eef7, 0.9));
-  const fill = new THREE.DirectionalLight(0x9db8ff, 0.5);
+  scene.add(new THREE.HemisphereLight(0x8fa8d8, 0xe8eef7, 1.6));
+  const fill = new THREE.DirectionalLight(0x9db8ff, 1.0);
   fill.position.set(-20, 18, 30);
   scene.add(fill);
 
@@ -140,8 +148,9 @@ export function createWorld(scene, seed = 1) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // packed track strip (slightly bluer, textured, with soft lane grooves)
-  const trackTex = snowTexture('#c3d2e8', 'rgba(147,174,207,0.4)', 'rgba(255,255,255,0.6)');
+  // packed track strip (lighter than before — 20 Nov 2026: the old
+  // blue-grey base read as nearly black on the user's phone)
+  const trackTex = snowTexture('#dbe7f6', 'rgba(178,198,226,0.35)', 'rgba(255,255,255,0.6)');
   trackTex.repeat.set(2, 40);
   const trackMat = new THREE.MeshStandardMaterial({ map: trackTex, bumpMap: trackTex, bumpScale: 0.2, roughness: 0.95 });
   const track = new THREE.Mesh(new THREE.PlaneGeometry(TRACK_HALF * 2 + 1.2, 320), trackMat);
@@ -152,7 +161,7 @@ export function createWorld(scene, seed = 1) {
   for (const x of [-1.1, 1.1]) {
     const groove = new THREE.Mesh(
       new THREE.PlaneGeometry(0.14, 320),
-      new THREE.MeshStandardMaterial({ color: 0x93aecf, roughness: 1 }),
+      new THREE.MeshStandardMaterial({ color: 0xb9cde9, roughness: 1 }),
     );
     groove.rotation.x = -Math.PI / 2;
     groove.position.set(x, 0.03, -120);
