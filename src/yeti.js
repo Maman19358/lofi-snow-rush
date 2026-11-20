@@ -35,10 +35,11 @@ export function createYeti() {
   shield.visible = false;
   g.add(shield);
 
-  // ---- blob shadow (unchanged) ----
+  // ---- blob shadow (strengthened 20 Nov 2026: the white yeti needs a
+  // darker contact shadow to read against the snow) ----
   const blob = new THREE.Mesh(
-    new THREE.CircleGeometry(0.62, 24),
-    new THREE.MeshBasicMaterial({ color: 0x1c2f4a, transparent: true, opacity: 0.28, depthWrite: false }),
+    new THREE.CircleGeometry(0.72, 24),
+    new THREE.MeshBasicMaterial({ color: 0x1c2f4a, transparent: true, opacity: 0.42, depthWrite: false }),
   );
   blob.rotation.x = -Math.PI / 2;
   blob.position.y = 0.02;
@@ -253,7 +254,7 @@ export function createYeti() {
       const h = Math.max(0, g.position.y - (opts.baseY || 0));
       const bs = Math.max(0.55, 1 - h * 0.35);
       blob.scale.set(bs, bs, 1);
-      blob.material.opacity = 0.28 * bs;
+      blob.material.opacity = 0.42 * bs;
       if (!mixer) {
         // Primitive fallback: blink + breathing (the GLB path has clips).
         const blink = (t % 3.4) < 0.12 ? 0.15 : 1;
@@ -276,6 +277,9 @@ export function createYeti() {
 
   function buildFallback() {
     // Compact primitive yeti — only used if the GLB cannot load.
+    // White fur + blue hands/feet/ears/horns: the yeti is white + blue
+    // by design (matches the keyart). Visibility against the snow comes
+    // from the darker track, not from recoloring the yeti.
     const fur = new THREE.MeshStandardMaterial({ color: 0xf4f7fb, roughness: 1 });
     const blue = new THREE.MeshStandardMaterial({ color: 0x3f8cff, roughness: 0.55 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x1a2433, roughness: 0.4 });
@@ -323,10 +327,12 @@ export function createYeti() {
       model.traverse((o) => {
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; }
         if (o.isBone) bones[o.name] = o;
-        // The shared Quaternius palette atlas paints the fur a mid-grey,
-        // which reads beige-grey under the sunset light. Brighten the
-        // material (slight blue bias) so the fur reads white like the
-        // key art; dark parts stay dark because the multiply is relative.
+        // The shared Quaternius palette atlas paints the fur near-white,
+        // and the multiply (1.75, 1.8, 2.0) keeps it bright white with a
+        // cool blue tint — the yeti is white + blue by design (matches
+        // the keyart). Visibility against the snow comes from the darker
+        // track, not from recoloring the yeti; dark parts stay dark
+        // because the multiply is relative.
         if (o.isMesh && o.material && o.material.color) {
           o.material.color.setRGB(1.75, 1.8, 2.0);
         }
@@ -346,8 +352,8 @@ export function createYeti() {
       for (const n of ['Jump', 'Jump_Land']) {
         if (actions[n]) { actions[n].setLoop(THREE.LoopOnce, 1); actions[n].clampWhenFinished = true; }
       }
-      // The Quaternius Yeti's fur texture is already white with cool-blue
-      // shading; keep it untouched (a global tint would blue the whole body).
+      // The Quaternius Yeti's fur texture is near-white and the multiply
+      // above keeps it white + blue by design. No further tint here.
       api.ready = true;
       playClip('Idle');
       console.log('[yeti] GLB loaded:', gltf.animations.map((c) => c.name).join(', '));

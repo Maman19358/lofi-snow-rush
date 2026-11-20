@@ -148,9 +148,38 @@ export function createWorld(scene, seed = 1) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // packed track strip (lighter than before — 20 Nov 2026: the old
-  // blue-grey base read as nearly black on the user's phone)
-  const trackTex = snowTexture('#dbe7f6', 'rgba(178,198,226,0.35)', 'rgba(255,255,255,0.6)');
+  // Zebra track (20 Nov 2026, user: "zebra aja lantainya hitam putih"):
+  // bold black/white bands ACROSS the track (perpendicular to the run
+  // direction), repeating along its length, so the white yeti always has
+  // a black band nearby for contrast. The snow outside the track stays
+  // white. Bands vary along V (the length axis); with repeat (2, 40) one
+  // tile covers 8 world units, so 2 black bands per tile = 2-unit black
+  // bands alternating with 2-unit white gaps. The yeti stays white +
+  // blue by design — the track does the contrasting, not the yeti.
+  function zebraTexture(size = 256) {
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const g = c.getContext('2d');
+    g.fillStyle = '#f4f7fb';
+    g.fillRect(0, 0, size, size);
+    g.fillStyle = '#14181f';
+    const band = size / 4;
+    g.fillRect(0, 0, size, band);
+    g.fillRect(0, size / 2, size, band);
+    // faint sparkle on the white bands only, so the snow still reads
+    // as snow instead of flat paint
+    for (let i = 0; i < 120; i++) {
+      const y = (rand() < 0.5 ? size / 4 : 3 * size / 4) + rand() * band;
+      g.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.9)' : 'rgba(200,215,235,0.6)';
+      g.fillRect(rand() * size, y, 2, 2);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  }
+  const trackTex = zebraTexture();
   trackTex.repeat.set(2, 40);
   const trackMat = new THREE.MeshStandardMaterial({ map: trackTex, bumpMap: trackTex, bumpScale: 0.2, roughness: 0.95 });
   const track = new THREE.Mesh(new THREE.PlaneGeometry(TRACK_HALF * 2 + 1.2, 320), trackMat);
@@ -161,7 +190,7 @@ export function createWorld(scene, seed = 1) {
   for (const x of [-1.1, 1.1]) {
     const groove = new THREE.Mesh(
       new THREE.PlaneGeometry(0.14, 320),
-      new THREE.MeshStandardMaterial({ color: 0xb9cde9, roughness: 1 }),
+      new THREE.MeshStandardMaterial({ color: 0x8a94a6, roughness: 1 }),
     );
     groove.rotation.x = -Math.PI / 2;
     groove.position.set(x, 0.03, -120);
