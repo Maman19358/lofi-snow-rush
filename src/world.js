@@ -345,20 +345,26 @@ export function createWorld(scene, seed = 1) {
     trees.push({ mesh: t, baseX: x });
   }
 
-  // ---------- falling snow (Points, recycled in a box around the camera) ----------
-  const SNOW_N = 700;
+  // ---------- falling snow: THIN and light (user 22:13 WIB "hujan salju
+  // tipis tipis") — the old system was 700 flakes at opacity 0.9, far too
+  // heavy; retuned to ~150 small flakes, low opacity, slow fall with a
+  // gentle sway, recycled in a tight box around the camera so a few
+  // flakes are always drifting past the view without ever hiding the
+  // yeti, coins or obstacles. One Points draw call, no per-frame
+  // allocations; sizeAttenuation gives near/far depth variation.
+  const SNOW_N = 150;
   const snowGeo = new THREE.BufferGeometry();
   const snowPos = new Float32Array(SNOW_N * 3);
   const snowVel = new Float32Array(SNOW_N);
   for (let i = 0; i < SNOW_N; i++) {
-    snowPos[i * 3] = (rand() - 0.5) * 60;
-    snowPos[i * 3 + 1] = rand() * 22;
-    snowPos[i * 3 + 2] = -130 + rand() * 140;
-    snowVel[i] = 1.2 + rand() * 2.2;
+    snowPos[i * 3] = (rand() - 0.5) * 28;
+    snowPos[i * 3 + 1] = rand() * 14;
+    snowPos[i * 3 + 2] = -60 + rand() * 68;
+    snowVel[i] = 0.6 + rand() * 0.9;
   }
   snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
   const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.14, transparent: true, opacity: 0.9, sizeAttenuation: true,
+    color: 0xffffff, size: 0.09, transparent: true, opacity: 0.5, sizeAttenuation: true,
   }));
   scene.add(snow);
 
@@ -553,12 +559,13 @@ export function createWorld(scene, seed = 1) {
     update(dt, speed, camZ) {
       // snowfall drifts down and slightly sideways, recycling above the camera
       const p = snowGeo.attributes.position;
+      const now = performance.now();
       for (let i = 0; i < SNOW_N; i++) {
         let y = p.getY(i) - snowVel[i] * dt;
-        let x = p.getX(i) + Math.sin(i * 1.7 + performance.now() * 0.0004) * dt * 0.35;
+        let x = p.getX(i) + Math.sin(i * 1.7 + now * 0.0004) * dt * 0.35;
         let z = p.getZ(i);
-        if (y < 0) { y = 20 + rand() * 2; x = (rand() - 0.5) * 60; z = camZ - 130 + rand() * 140; }
-        if (z > camZ + 12) z -= 140;
+        if (y < 0) { y = 12 + rand() * 2; x = (rand() - 0.5) * 28; z = camZ - 60 + rand() * 68; }
+        if (z > camZ + 8) z -= 68;
         p.setXYZ(i, x, y, z);
       }
       p.needsUpdate = true;
